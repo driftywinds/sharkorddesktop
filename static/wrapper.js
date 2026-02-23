@@ -1112,15 +1112,17 @@
       e.preventDefault();
       dragging = true;
     });
-    document.addEventListener('mousemove', function move(e) {
+    var move = function (e) {
       if (!dragging) return;
       updateFromMouse(e);
-    });
-    document.addEventListener('mouseup', function up() {
+    };
+    var up = function () {
       if (dragging) dragging = false;
       document.removeEventListener('mousemove', move);
       document.removeEventListener('mouseup', up);
-    });
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
   }
 
   function applyVolumeToLiveGain(key, pct) {
@@ -1166,15 +1168,17 @@
       e.preventDefault();
       dragging = true;
     });
-    document.addEventListener('mousemove', function move(e) {
+    var move = function (e) {
       if (!dragging) return;
       updateFromMouse(e);
-    });
-    document.addEventListener('mouseup', function up() {
+    };
+    var up = function () {
       if (dragging) dragging = false;
       document.removeEventListener('mousemove', move);
       document.removeEventListener('mouseup', up);
-    });
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
   }
 
   var volumeTracksSetup = false;
