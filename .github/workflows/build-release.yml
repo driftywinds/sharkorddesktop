@@ -1,0 +1,119 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. v1.0.0)'
+        required: true
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+          - os: macos-latest
+            platform: mac
+          - os: ubuntu-latest
+            platform: linux
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply X-Frame-Options fix
+        shell: node {0}
+        run: |
+          const fs = require('fs');
+          const path = 'src/main.ts';
+          let src = fs.readFileSync(path, 'utf8');
+          const fix = `
+            ses.webRequest.onHeadersReceived((details, callback) => {
+              const headers: Record<string, string[]> = {};
+              for (const [key, value] of Object.entries(details.responseHeaders ?? {})) {
+                const lower = key.toLowerCase();
+                if (lower === 'x-frame-options') continue;
+                if (lower === 'content-security-policy') {
+                  headers[key] = (value as string[]).map((csp) =>
+                    csp.replace(/frame-ancestors[^;]*(;|$)\\s*/gi, '')
+                  );
+                } else {
+                  headers[key] = value as string[];
+                }
+              }
+              callback({ responseHeaders: headers });
+            });
+          `;
+          if (src.includes('onHeadersReceived')) {
+            console.log('Fix already applied, skipping.');
+          } else {
+            src = src.replace(
+              'function setupMediaPermissions(): void {\n  const ses = session.defaultSession;\n',
+              'function setupMediaPermissions(): void {\n  const ses = session.defaultSession;\n' + fix
+            );
+            fs.writeFileSync(path, src);
+            console.log('X-Frame-Options fix applied.');
+          }
+
+      - name: Build
+        run: npm run pack
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sharkord-${{ matrix.platform }}
+          path: |
+            out/*.exe
+            out/*.dmg
+            out/*.AppImage
+            out/*.zip
+            out/latest*.yml
+          if-no-files-found: warn
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Sharkord Desktop ${{ steps.version.outputs.tag }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: artifacts/**/*
